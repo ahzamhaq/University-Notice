@@ -1,0 +1,8 @@
+langchain-text-splitters>=0.3
+tiktoken>=0.7
+beautifulsoup4>=4.12
+PyPDF2>=3.0
+requests>=2.31
+supabase>=2.4
+python-dotenv>=1.0
+ollama>=0.4

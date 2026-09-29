@@ -1,0 +1,37 @@
+# Extra notice pages to scrape, one URL per line. Merged with NOTICE_URLS in config.py.
+# Lines starting with # are ignored. Only these pages (and their own ?page=N pagination)
+# are crawled: CRAWL_MAX_DEPTH = 0 in config.py, so no other linked pages are visited.
+
+# Student welfare (DSW)
+https://www.ipu.ac.in/dsw.php
+https://www.ipu.ac.in/dsw_forms.php
+https://www.ipu.ac.in/dsw_student.php
+https://www.ipu.ac.in/dsw_ews.php
+https://www.ipu.ac.in/dsw_sports.php
+https://www.ipu.ac.in/dsw_anugoonj.php
+
+# Cells, hostels, placement, committees
+https://www.ipu.ac.in/nsscellmain.php
+https://www.ipu.ac.in/ncccellmain.php
+https://www.ipu.ac.in/hostels.php
+https://www.ipu.ac.in/career_plcmnt.php
+https://www.ipu.ac.in/usgrcmain.php
+https://www.ipu.ac.in/antiragging.php
+https://www.ipu.ac.in/equalopportunity.php
+https://www.ipu.ac.in/uiacutthaan.php
+https://www.ipu.ac.in/proctor.php
+
+# Research & consultancy
+https://www.ipu.ac.in/rnc_doctoral_research.php
+https://www.ipu.ac.in/rnc_guilelines.php
+https://www.ipu.ac.in/rnc_students.php
+https://www.ipu.ac.in/rnc_misc.php
+https://www.ipu.ac.in/rnc_notices.php
+https://www.ipu.ac.in/rnc_archieve.PHP
+
+# Examinations, NAD, convocation
+https://www.ipu.ac.in/exam_notices.php
+https://www.ipu.ac.in/exam_datesheet.php
+https://www.ipu.ac.in/exam_regulation_form.php
+https://www.ipu.ac.in/nadnotices.php
+https://www.ipu.ac.in/convo2026.php
