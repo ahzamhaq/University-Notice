@@ -2,8 +2,6 @@
 
 **Live demo: <https://university-notice.vercel.app>**
 
-**Official university website: <https://www.ipu.ac.in/>**
-
 Ask questions about GGSIPU (Guru Gobind Singh Indraprastha University) notices in plain English and get a short answer that cites the official PDFs. This is a retrieval-augmented generation (RAG) system:
 - A Python pipeline scrapes and indexes the notice PDFs.
 - Supabase (pgvector) stores the embeddings.
