@@ -230,9 +230,7 @@ export default function SearchNotices() {
               </ul>
               {extraCount > 0 && (
                 <button type="button" className={styles.more} onClick={() => setShowAll((v) => !v)}>
-                  {showAll
-                    ? "Show fewer"
-                    : `Show ${extraCount} more matching notice${extraCount === 1 ? "" : "s"}`}
+                  {showAll ? "Show fewer documents" : "Load more documents"}
                 </button>
               )}
             </>
