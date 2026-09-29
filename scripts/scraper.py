@@ -33,7 +33,12 @@ import config  # noqa: E402
 
 log = logging.getLogger("scraper")
 
-DATE_RE = re.compile(r"\b(\d{1,2})[-./](\d{1,2})[-./](\d{4})\b")
+# dd-mm-yyyy, also dd-mm-yy (some research pages use 2-digit years, e.g. 02-04-26).
+DATE_RE = re.compile(r"\b(\d{1,2})[-./](\d{1,2})[-./](\d{4}|\d{2})\b")
+# Link texts that say nothing about the notice; the real title is then in another cell.
+GENERIC_LINK_TEXT = re.compile(
+    r"^(pdf|download|click here|here|view|view pdf|open|link|read more|details|file)$", re.IGNORECASE
+)
 NEXT_RE = re.compile(r"\bnext\b|»", re.IGNORECASE)
 
 
@@ -107,6 +112,8 @@ def parse_date(text: str) -> str | None:
     if not match:
         return None
     day, month, year = map(int, match.groups())
+    if year < 100:
+        year += 2000
     try:
         return datetime(year, month, day).date().isoformat()
     except ValueError:
@@ -129,13 +136,14 @@ class PoliteSession:
         return self._request(url, **kwargs)
 
     def _request(self, url: str, **kwargs) -> requests.Response:
-        wait = self.delay - (time.monotonic() - self._last_request)
+        # perf_counter: time.monotonic ticks every 15.6ms on Windows, which could cut the delay short.
+        wait = self.delay - (time.perf_counter() - self._last_request)
         if wait > 0:
             time.sleep(wait)
         try:
             return self.session.get(url, timeout=config.REQUEST_TIMEOUT, **kwargs)
         finally:
-            self._last_request = time.monotonic()
+            self._last_request = time.perf_counter()
 
     def _allowed(self, url: str) -> bool:
         parts = urlparse(url)
@@ -170,6 +178,22 @@ def _is_navigation(anchor: Tag) -> bool:
     return any("dropdown" in cls or "nav-link" in cls for cls in anchor.get("class", []))
 
 
+def row_title(row: Tag | None, anchor: Tag) -> str | None:
+    """When the link just says "PDF", the title is the longest other cell in the row
+    that isn't a date or serial number."""
+    if row is None:
+        return None
+    link_cell = anchor.find_parent(["td", "th"])
+    candidates = []
+    for cell in row.find_all(["td", "th"]):
+        if cell is link_cell:
+            continue
+        text = " ".join(cell.get_text(" ", strip=True).split())
+        if text and not re.fullmatch(r"[\d\s./-]+", text) and not GENERIC_LINK_TEXT.match(text):
+            candidates.append(text)
+    return max(candidates, key=len) if candidates else None
+
+
 def parse_listing(html: bytes, page_url: str) -> tuple[list[PdfLink], str | None, list[str]]:
     """Return (PDF links, next-page URL, sub-page URLs worth following) for a listing page."""
     soup = BeautifulSoup(html, "html.parser")
@@ -191,7 +215,8 @@ def parse_listing(html: bytes, page_url: str) -> tuple[list[PdfLink], str | None
         if is_pdf(url):
             row = anchor.find_parent("tr")
             date = parse_date(row.get_text(" ", strip=True)) if row else None
-            title = text or Path(urlparse(url).path).stem
+            title = text if text and not GENERIC_LINK_TEXT.match(text) else row_title(row, anchor)
+            title = title or Path(urlparse(url).path).stem
             pdfs.append(PdfLink(url=url, title=title, notice_date=date, source_page=page_url))
         elif next_url is None and NEXT_RE.search(text):
             next_url = url

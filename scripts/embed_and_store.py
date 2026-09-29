@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import ollama
+import requests
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from supabase import Client, create_client
@@ -201,8 +202,14 @@ class NoticeStore:
         self.known[link.url] = KnownNotice(notice_id, status, content_hash, now)
 
 
+def check_dim(vectors: list[list[float]]) -> list[list[float]]:
+    if vectors and len(vectors[0]) != config.EMBED_DIM:
+        raise ValueError(f"expected {config.EMBED_DIM}-dim embeddings, got {len(vectors[0])}")
+    return vectors
+
+
 class Embedder:
-    """Local embeddings through Ollama. nomic-embed-text expects a task prefix."""
+    """Local embeddings through Ollama (bge-m3 needs no task prefix)."""
 
     def __init__(self) -> None:
         self.host = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
@@ -220,11 +227,45 @@ class Embedder:
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for start in range(0, len(texts), config.EMBED_BATCH_SIZE):
-            batch = [f"search_document: {t}" for t in texts[start : start + config.EMBED_BATCH_SIZE]]
+            batch = texts[start : start + config.EMBED_BATCH_SIZE]
             vectors.extend(self.client.embed(model=self.model, input=batch)["embeddings"])
-        if vectors and len(vectors[0]) != config.EMBED_DIM:
-            raise ValueError(f"expected {config.EMBED_DIM}-dim embeddings, got {len(vectors[0])}")
-        return vectors
+        return check_dim(vectors)
+
+
+class CloudflareEmbedder:
+    """bge-m3 on Cloudflare Workers AI: identical vectors to local Ollama bge-m3 (cosine 1.0000
+    in testing), but much faster than a CPU. Used when EMBED_PROVIDER=cloudflare."""
+
+    def __init__(self) -> None:
+        account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+        self.token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+        if not account or not self.token:
+            raise SystemExit("Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env to use EMBED_PROVIDER=cloudflare.")
+        self.url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{config.CLOUDFLARE_EMBED_MODEL}"
+        self.session = requests.Session()
+        self.session.headers["Authorization"] = f"Bearer {self.token}"
+
+    def check(self) -> None:
+        try:
+            self.embed_documents(["connection check"])
+        except Exception as exc:
+            raise SystemExit(f"Cloudflare Workers AI embedding failed: {exc}")
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), config.CLOUDFLARE_EMBED_BATCH_SIZE):
+            batch = texts[start : start + config.CLOUDFLARE_EMBED_BATCH_SIZE]
+            resp = self.session.post(self.url, json={"text": batch}, timeout=120)
+            body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            if not resp.ok or not body.get("success"):
+                raise RuntimeError(f"Cloudflare returned {resp.status_code}: {body.get('errors') or resp.text[:200]}")
+            vectors.extend(body["result"]["data"])
+        return check_dim(vectors)
+
+
+def make_embedder() -> Embedder | CloudflareEmbedder:
+    provider = os.getenv("EMBED_PROVIDER", "ollama").strip().lower()
+    return CloudflareEmbedder() if provider == "cloudflare" else Embedder()
 
 
 def make_splitter() -> RecursiveCharacterTextSplitter:
@@ -315,7 +356,7 @@ def main() -> None:
         store.load_index()
     except Exception as exc:
         raise SystemExit(f"Could not read the notices table ({exc}). Did you run supabase/schema.sql?")
-    embedder = Embedder()
+    embedder = make_embedder()
     embedder.check()
 
     session = PoliteSession()

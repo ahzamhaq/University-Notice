@@ -6,6 +6,9 @@ import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs"; // logger needs fs
 export const dynamic = "force-dynamic";
+// Vercel function time limit (seconds). Hosted models answer well within this; local Ollama
+// has no such limit when self-hosted.
+export const maxDuration = 60;
 
 const MIN_QUESTION_LENGTH = 3;
 const MAX_QUESTION_LENGTH = 500;

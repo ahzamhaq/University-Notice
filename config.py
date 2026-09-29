@@ -41,9 +41,13 @@ MIN_TEXT_CHARS = 50  # less than this after extraction = treat as scanned/empty
 # --- Chunking & embeddings --------------------------------------------------
 CHUNK_SIZE = 500  # tokens
 CHUNK_OVERLAP = 50  # tokens
-EMBED_MODEL = "nomic-embed-text"  # overridable with OLLAMA_EMBED_MODEL
-EMBED_DIM = 768  # must match vector(768) in supabase/schema.sql
+# bge-m3 runs both locally (Ollama) and on Cloudflare Workers AI with identical vectors, so
+# ingestion can stay local while the deployed site embeds questions on Cloudflare.
+EMBED_MODEL = "bge-m3"  # Ollama model name; overridable with OLLAMA_EMBED_MODEL
+CLOUDFLARE_EMBED_MODEL = "@cf/baai/bge-m3"
+EMBED_DIM = 1024  # must match vector(1024) in supabase/schema.sql
 EMBED_BATCH_SIZE = 32
+CLOUDFLARE_EMBED_BATCH_SIZE = 50
 
 # Stored notices older than this are re-downloaded and re-embedded (weekly recompute).
 REFRESH_DAYS = 7

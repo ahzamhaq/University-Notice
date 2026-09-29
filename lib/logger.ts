@@ -2,8 +2,10 @@ import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 // Server-only: writes JSON lines to the console and to logs/api.log.
+// On Vercel the filesystem is read-only, so only the console is used (Vercel keeps those logs).
 const LOG_DIR = path.join(process.cwd(), "logs");
 const LOG_FILE = path.join(LOG_DIR, "api.log");
+const WRITE_FILE = !process.env.VERCEL;
 
 type Level = "info" | "warn" | "error";
 type Meta = Record<string, unknown>;
@@ -24,6 +26,7 @@ function write(level: Level, message: string, meta: Meta = {}): void {
   else if (level === "warn") console.warn(line);
   else console.log(line);
 
+  if (!WRITE_FILE) return;
   dirReady ??= mkdir(LOG_DIR, { recursive: true });
   dirReady
     .then(() => appendFile(LOG_FILE, line + "\n", "utf8"))

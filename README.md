@@ -7,7 +7,7 @@ vectors in Supabase (pgvector), and answers questions through a Next.js UI, citi
 
 ```
 scraper.py ─► embed_and_store.py ─► Supabase pgvector ◄─ lib/rag.ts ◄─ /api/query ◄─ SearchNotices.tsx
-                  (Ollama: nomic-embed-text)                 (Ollama: llama3.2)
+                  (Ollama: bge-m3)                           (Ollama: llama3.2)
 ```
 
 ## Prerequisites
@@ -25,7 +25,7 @@ scraper.py ─► embed_and_store.py ─► Supabase pgvector ◄─ lib/rag.ts 
 - **Linux:** `curl -fsSL https://ollama.com/install.sh | sh`
 
 ```bash
-ollama pull nomic-embed-text   # embeddings (768 dims, ~270MB)
+ollama pull bge-m3             # embeddings (1024 dims, ~1.2GB)
 ollama pull llama3.2           # answer generation (~2GB); any chat model works, see OLLAMA_CHAT_MODEL
 ollama serve                   # keep running in another terminal (the desktop app starts it automatically)
 ```
@@ -93,7 +93,7 @@ Open <http://localhost:3000>.
 **Embedding** (`scripts/embed_and_store.py`)
 - Splits text into chunks of 500 tokens with a 50-token overlap (LangChain `RecursiveCharacterTextSplitter`,
   counted with tiktoken). Each chunk is prefixed with the notice title and date.
-- Embeds the chunks with `nomic-embed-text` through the local Ollama server, using the `search_document:` prefix.
+- Embeds the chunks with `bge-m3` (1024 dims) through the local Ollama server, or on Cloudflare Workers AI with `EMBED_PROVIDER=cloudflare` (same vectors, much faster).
 - Every chunk row has an `update_date`.
 
 **Weekly recompute:** stored notices whose `updated_at` is more than `REFRESH_DAYS` (7) old are downloaded again
@@ -118,6 +118,35 @@ schtasks /Create /TN "NoticeRAG" /SC WEEKLY /D SUN /ST 03:00 /TR "\"C:\path\to\v
 - The endpoint is **rate limited** to 50 requests per minute per IP and returns `429` with `Retry-After` when
   the limit is hit. The limiter lives in memory, so each server process has its own limit.
 - Errors are logged as JSON lines to the console and to `logs/api.log`.
+
+## Deploying to Vercel
+
+Vercel can't run Ollama, so the deployed site uses **Cloudflare Workers AI** (free plan) for the query side. Ingestion still runs on your machine.
+
+| Piece | Local (default, offline) | Deployed |
+| --- | --- | --- |
+| Question embedding | Ollama `bge-m3` | Workers AI `@cf/baai/bge-m3` (same model, identical vectors: cosine 1.0000 in tests) |
+| Answers | Ollama `llama3.2` | Workers AI `@cf/meta/llama-3.1-8b-instruct-fp8-fast` |
+| Database | Supabase | Supabase (same project) |
+
+The free plan gives 10,000 "neurons" a day. One question costs about 15 (about 1,500 tokens in and 250 out), so it covers roughly 600 questions a day.
+
+1. Create a Cloudflare account. Under **Manage account → Account API tokens**, create a token with only the **Workers AI** permissions, and note your Account ID (the 32-character code in the dashboard URL).
+2. Import the GitHub repo at <https://vercel.com/new>. The framework is detected as Next.js.
+3. Add these environment variables:
+
+   | Name | Value |
+   | --- | --- |
+   | `SUPABASE_URL` | your project URL |
+   | `SUPABASE_KEY` | service_role key |
+   | `EMBED_PROVIDER` | `cloudflare` |
+   | `LLM_PROVIDER` | `cloudflare` |
+   | `CLOUDFLARE_ACCOUNT_ID` | your account ID |
+   | `CLOUDFLARE_API_TOKEN` | your token |
+
+4. Deploy. To add notices later, run `python scripts/embed_and_store.py` locally. The site reads the same database, so there's no need to redeploy. To embed much faster than your CPU can, add `EMBED_PROVIDER=cloudflare` to your local `.env`; it gives the same vectors.
+
+Notes: the per-IP rate limiter lives in memory, so on serverless it applies per instance.
 
 ## Tests
 
@@ -168,7 +197,7 @@ Point `SUPABASE_URL` and `SUPABASE_KEY` at the local instance, then run `schema.
 | Symptom | Fix |
 | --- | --- |
 | `Cannot reach Ollama` / API returns 503 | Start `ollama serve`, and check that `OLLAMA_ENDPOINT` is correct |
-| `model ... not available` | `ollama pull nomic-embed-text` (or the chat model you set) |
+| `model ... not available` | `ollama pull bge-m3` (or the chat model you set) |
 | `Could not read the notices table` | Run `supabase/schema.sql` in the SQL editor |
 | Many `TITLE ... storing title only` lines | Many IPU notices are scanned images without a text layer. They are indexed by title and date only (`status='title_only'`). Adding OCR would be needed to index their full text |
 | Answers say nothing was found | Check that ingestion stored chunks (`select count(*) from notice_chunks;`) |

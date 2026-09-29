@@ -21,13 +21,13 @@ https://www.ipu.ac.in/equalopportunity.php
 https://www.ipu.ac.in/uiacutthaan.php
 https://www.ipu.ac.in/proctor.php
 
-# Research & consultancy
-https://www.ipu.ac.in/rnc_doctoral_research.php
-https://www.ipu.ac.in/rnc_guilelines.php
-https://www.ipu.ac.in/rnc_students.php
-https://www.ipu.ac.in/rnc_misc.php
-https://www.ipu.ac.in/rnc_notices.php
-https://www.ipu.ac.in/rnc_archieve.PHP
+# Research & consultancy: paused for now (uncomment to crawl again).
+# https://www.ipu.ac.in/rnc_doctoral_research.php
+# https://www.ipu.ac.in/rnc_guilelines.php
+# https://www.ipu.ac.in/rnc_students.php
+# https://www.ipu.ac.in/rnc_misc.php
+# https://www.ipu.ac.in/rnc_notices.php
+# https://www.ipu.ac.in/rnc_archieve.PHP
 
 # Examinations, NAD, convocation
 https://www.ipu.ac.in/exam_notices.php

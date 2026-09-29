@@ -14,8 +14,8 @@ components/SearchNotices.tsx ──> app/api/query/route.ts ──> lib/rag.ts �
 ```
 
 - **Ingestion is Python**, and **serving is TypeScript/Next.js**. They share only the database schema (`supabase/schema.sql`) and the env vars.
-- **Everything model-related runs locally through Ollama.** Embeddings use `nomic-embed-text` (768 dims) and answers use a local chat model (`OLLAMA_CHAT_MODEL`, default `llama3.2`). Don't add hosted LLM APIs.
-- nomic-embed-text needs task prefixes: `search_document: ` when indexing and `search_query: ` when querying. Both sides must stay in sync.
+- **Embeddings are `bge-m3` (1024 dims) everywhere.** It runs both locally in Ollama and on Cloudflare Workers AI (`@cf/baai/bge-m3`) with *identical* vectors (cosine 1.0000, checked by `test_cloudflare_bge_m3_matches_local_ollama`). bge-m3 uses **no task prefixes**. Never switch the embedding model without re-embedding everything; `scripts/reembed_bge_m3.py` plus `supabase/migrations/002`/`003` show how.
+- Providers are chosen by env vars: `EMBED_PROVIDER` / `LLM_PROVIDER` = `ollama` (default, offline) or `cloudflare` (the Vercel deploy; the free plan is about 600 questions/day). Ingestion uses Ollama by default; `EMBED_PROVIDER=cloudflare` makes it much faster with the same vectors.
 
 ## Key files
 

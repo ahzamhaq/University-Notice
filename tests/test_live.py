@@ -57,7 +57,7 @@ def chunk_counts(db):
 
 def embed_query(text):
     resp = requests.post(
-        f"{OLLAMA}/api/embed", json={"model": "nomic-embed-text", "input": f"search_query: {text}"}, timeout=60
+        f"{OLLAMA}/api/embed", json={"model": config.EMBED_MODEL, "input": text}, timeout=120
     )
     resp.raise_for_status()
     return resp.json()["embeddings"][0]
@@ -68,10 +68,11 @@ def search(db, question, count=5):
     params = {
         "query_embedding": embed_query(question),
         "match_count": count,
-        "match_threshold": 0.3,
+        "match_threshold": 0.45,
         "max_per_notice": 1,
     }
-    return db.rpc("match_notice_chunks", params).execute().data
+    # MATCH_FUNCTION=match_notice_chunks_m3 tests the new bge-m3 column before migration step 2.
+    return db.rpc(os.getenv("MATCH_FUNCTION", "match_notice_chunks"), params).execute().data
 
 
 @pytest.fixture(scope="session")
@@ -91,10 +92,10 @@ def test_ollama_is_running():
 
 def test_ollama_has_both_models():
     names = {m["name"].split(":")[0] for m in requests.get(f"{OLLAMA}/api/tags", timeout=5).json()["models"]}
-    assert {"nomic-embed-text", os.getenv("OLLAMA_CHAT_MODEL", "llama3.2")} <= names
+    assert {config.EMBED_MODEL, os.getenv("OLLAMA_CHAT_MODEL", "llama3.2")} <= names
 
 
-def test_ollama_embedding_has_768_dims():
+def test_ollama_embedding_has_configured_dims():
     assert len(embed_query("hello")) == config.EMBED_DIM
 
 
@@ -147,7 +148,7 @@ def test_no_orphan_chunks(notices, chunk_counts):
     assert set(chunk_counts) <= {n["id"] for n in notices}
 
 
-def test_stored_embeddings_are_768_dims(db):
+def test_stored_embeddings_have_configured_dims(db):
     row = db.table("notice_chunks").select("embedding,update_date,content").limit(1).execute().data[0]
     embedding = json.loads(row["embedding"]) if isinstance(row["embedding"], str) else row["embedding"]
     assert len(embedding) == config.EMBED_DIM
@@ -175,20 +176,35 @@ def test_search_results_are_sorted_by_score_and_above_threshold(db):
     results = search(db, "examination datesheet")
     scores = [r["score"] for r in results]
     assert results and scores == sorted(scores, reverse=True)
-    assert min(r["similarity"] for r in results) > 0.3
+    assert min(r["similarity"] for r in results) > 0.45
     assert all(r["score"] >= r["similarity"] for r in results)  # boost is never negative
 
 
+def recent_cutoff(days=90):
+    from datetime import date, timedelta
+
+    return (date.today() - timedelta(days=days)).isoformat()
+
+
 def test_recency_boost_prefers_new_notices_over_near_identical_old_ones(db):
-    """The April 2025 datesheet used to outrank four Sep 2026 ones by 0.001 similarity."""
-    dates = [r["notice_date"] for r in search(db, "latest exam datesheet")]
-    assert all(d and d >= "2026-09-01" for d in dates), dates
+    """Without the boost, an April 2025 datesheet ranks among Aug-Sep 2026 ones on near-equal
+    similarity. With it, every result for "latest ..." must be recent."""
+    rows = search(db, "latest exam datesheet")
+    dates = [r["notice_date"] for r in rows]
+    assert all(d and d >= recent_cutoff() for d in dates), dates
+    assert not any("May/June 2025" in r["title"] for r in rows)
 
 
 def test_clearly_better_old_match_still_wins(db):
     """The only Yogasana championship notice is from Oct 2025; newer sports notices mustn't bury it."""
     top = search(db, "Inter-collegiate yogasana championship")[0]
     assert "yogasana" in top["title"].lower()
+
+
+@pytest.mark.parametrize("question", ["What is the capital of France?", "best pizza recipe with cheese", "asdfgh qwerty"])
+def test_unrelated_questions_match_no_notices(db, question):
+    """bge-m3 gives unrelated text ~0.3-0.41; the 0.45 threshold must keep it out of the prompt."""
+    assert search(db, question) == []
 
 
 @pytest.mark.parametrize("question", ["selection trials", "scholarship", "EWS financial assistance interview"])
@@ -293,6 +309,66 @@ def test_api_stream_sends_sources_fast_then_tokens(api):
     types = [e["type"] for e in events]
     assert types[0] == "sources" and types[-1] == "done" and "token" in types, types
     assert first_event_at < 20, f"sources took {first_event_at:.1f}s"
-    assert all((s["noticeDate"] or "") >= "2026-09-01" for s in events[0]["sources"])  # recency boost
+    assert all((s["noticeDate"] or "") >= recent_cutoff() for s in events[0]["sources"])  # recency boost
     assert len("".join(e["text"] for e in events if e["type"] == "token")) > 20
 
+
+
+# --- hosted mode (Vercel): Cloudflare Workers AI ---------------------------------------------
+
+def cloudflare_run(model, payload, **kwargs):
+    account, token = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip(), os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+    if not account or not token:
+        pytest.skip("CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN not set")
+    return requests.post(
+        f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}",
+        headers={"Authorization": f"Bearer {token}"},
+        json=payload,
+        timeout=120,
+        **kwargs,
+    )
+
+
+def cloudflare_embed(text):
+    body = cloudflare_run(config.CLOUDFLARE_EMBED_MODEL, {"text": [text]}).json()
+    assert body["success"], body["errors"]
+    return body["result"]["data"][0]
+
+
+def cosine(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    return dot / ((sum(x * x for x in a) ** 0.5) * (sum(y * y for y in b) ** 0.5))
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["LLB exam datesheet December 2026", "छात्रवृत्ति के लिए आवेदन", "Selection trials for women's football " * 20],
+)
+def test_cloudflare_bge_m3_matches_local_ollama(text):
+    """Notices may be embedded locally or on Cloudflare; both must land in the same space."""
+    hosted = cloudflare_embed(text)
+    assert len(hosted) == config.EMBED_DIM
+    assert cosine(hosted, embed_query(text)) > 0.999
+
+
+@pytest.mark.parametrize(
+    "question, expected_in_title",
+    [
+        ("Selection trials for the women's football team", "Women's Football"),
+        ("LLB exam datesheet December 2026", "LLB"),
+        ("Inter-collegiate yogasana championship", "Yogasana"),
+    ],
+)
+def test_retrieval_with_cloudflare_query_vectors(db, question, expected_in_title):
+    params = {"query_embedding": cloudflare_embed(question), "match_count": 5, "match_threshold": 0.45, "max_per_notice": 1}
+    rows = db.rpc(os.getenv("MATCH_FUNCTION", "match_notice_chunks"), params).execute().data
+    assert any(expected_in_title.lower() in (r["title"] or "").lower() for r in rows), [r["title"] for r in rows]
+
+
+def test_cloudflare_chat_model_streams():
+    model = os.getenv("CLOUDFLARE_CHAT_MODEL", "@cf/meta/llama-3.1-8b-instruct-fp8-fast")
+    payload = {"messages": [{"role": "user", "content": "Reply with the single word OK."}], "stream": True, "max_tokens": 5}
+    with cloudflare_run(model, payload, stream=True) as resp:
+        assert resp.ok, resp.text
+        lines = [line for line in resp.iter_lines(decode_unicode=True) if line.startswith("data:")]
+    assert lines and lines[-1].strip() == "data: [DONE]"

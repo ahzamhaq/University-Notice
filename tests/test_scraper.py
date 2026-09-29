@@ -51,6 +51,7 @@ def parsed():
         ("28-09-2026", "2026-09-28"),
         ("Uploaded 5/1/2027 by admin", "2027-01-05"),
         ("12.03.2025", "2025-03-12"),
+        ("02-04-26", "2026-04-02"),  # 2-digit year (rnc_* pages)
         ("31-02-2026", None),  # impossible date
         ("no date here", None),
     ],
@@ -109,10 +110,25 @@ def test_listing_skips_menu_nav_footer_and_external_pdfs(parsed):
     assert len(urls) == 3  # the three table PDFs (one appears twice in the table)
 
 
-def test_listing_untitled_pdf_falls_back_to_filename(parsed):
+def test_listing_link_without_text_takes_title_from_its_row(parsed):
     untitled = [p for p in parsed[0] if p.url.endswith("untitled.pdf")][0]
-    assert untitled.title == "untitled"
+    assert untitled.title == "no date here"  # the row's other cell
     assert untitled.notice_date is None
+
+
+def test_pdf_link_text_takes_title_from_the_row():
+    """rnc_guilelines.php style: title cell, a link that just says "PDF", then a 2-digit-year date."""
+    html = b"""<table><tr>
+      <td style="width: 334px">Notification of Amendment of Guidelines of Indraprastha University Fellowship</td>
+      <td align="center"><a href="/Pubinfo2026/nt0204261233.pdf">PDF</a></td>
+      <td align="center">02-04-26</td>
+    </tr><tr>
+      <td>1.</td><td><a href="/x/only-link.pdf">Download</a></td><td>05-06-2025</td>
+    </tr></table>"""
+    pdfs, _, _ = scraper.parse_listing(html, f"{BASE}/rnc_guilelines.php")
+    assert pdfs[0].title == "Notification of Amendment of Guidelines of Indraprastha University Fellowship"
+    assert pdfs[0].notice_date == "2026-04-02"
+    assert pdfs[1].title == "only-link"  # nothing but a serial number and a date: fall back to the filename
 
 
 def test_listing_finds_next_link_not_previous(parsed):
@@ -197,7 +213,7 @@ def _polite(monkeypatch, robots: FakeResponse, delay: float = 0.0):
     calls = []
 
     def fake_get(url, **kwargs):
-        calls.append((url, time.monotonic()))
+        calls.append((url, time.perf_counter()))
         return robots if url.endswith("/robots.txt") else FakeResponse("ok")
 
     monkeypatch.setattr(session.session, "get", fake_get)
@@ -300,7 +316,7 @@ def test_depth_zero_visits_only_seed_pages_and_their_pagination():
 def test_configured_seeds_are_exactly_the_requested_pages():
     urls = config.get_notice_urls()
     assert config.CRAWL_MAX_DEPTH == 0
-    assert len(urls) == 27  # notices.php + the 26 pages in urls.txt (dsw_sports.php listed in both)
+    assert len(urls) == 21  # notices.php + 20 active pages in urls.txt (6 research pages paused; dsw_sports.php in both)
     assert all(u.startswith("https://www.ipu.ac.in/") for u in urls)
 
 

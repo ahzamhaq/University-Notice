@@ -1,5 +1,6 @@
 -- University Notice RAG schema. Run once in the Supabase SQL editor (safe to re-run).
--- Embedding size 768 matches nomic-embed-text; change it everywhere if you switch models.
+-- Embedding size 1024 matches bge-m3 (config.EMBED_DIM); change it everywhere if you switch models.
+-- Existing databases created with 768-dim nomic vectors: apply supabase/migrations/002 and 003 instead.
 
 create extension if not exists vector;
 
@@ -27,7 +28,7 @@ create table if not exists notice_chunks (
   notice_id   bigint not null references notices (id) on delete cascade,
   chunk_index int not null,
   content     text not null,
-  embedding   vector(768) not null,
+  embedding   vector(1024) not null,
   update_date timestamptz not null default now(),
   unique (notice_id, chunk_index)
 );
@@ -45,9 +46,9 @@ drop index if exists notice_chunks_embedding_idx;
 drop function if exists match_notice_chunks (vector, int, float);
 drop function if exists match_notice_chunks (vector, int, float, int);
 create or replace function match_notice_chunks (
-  query_embedding        vector(768),
+  query_embedding        vector(1024),
   match_count            int   default 5,
-  match_threshold        float default 0.3,
+  match_threshold        float default 0.45,
   max_per_notice         int   default 1,
   recency_weight         float default 0.05,
   recency_half_life_days float default 180

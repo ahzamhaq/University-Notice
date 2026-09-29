@@ -4,7 +4,7 @@ const rpc = vi.fn();
 const createClient = vi.fn(() => ({ rpc }));
 vi.mock("@supabase/supabase-js", () => ({ createClient }));
 
-const EMBEDDING = new Array(768).fill(0.01);
+const EMBEDDING = new Array(1024).fill(0.01);
 
 function chunk(url: string, date: string | null, similarity: number, content = "text") {
   return {
@@ -76,16 +76,23 @@ describe("lib/rag", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("embeds the question with the search_query prefix and keeps the model warm", async () => {
+  it("embeds the question as-is with local bge-m3 and keeps the model warm", async () => {
     const calls = mockOllama();
     const { embedQuery } = await loadRag();
-    expect(await embedQuery("LLB datesheet")).toHaveLength(768);
+    expect(await embedQuery("LLB datesheet")).toHaveLength(1024);
     expect(calls[0].url).toBe("http://localhost:11434/api/embed");
-    expect(calls[0].body).toEqual({
-      model: "nomic-embed-text",
-      input: "search_query: LLB datesheet",
-      keep_alive: "30m",
-    });
+    expect(calls[0].body).toEqual({ model: "bge-m3", input: "LLB datesheet", keep_alive: "30m" });
+  });
+
+  it("names the real problem when the embedding model has the wrong size (e.g. old nomic model)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ embeddings: [new Array(768).fill(0.1)] }))),
+    );
+    const { embedQuery } = await loadRag();
+    await expect(embedQuery("x")).rejects.toThrow(
+      "The embedding model returned 768 dimensions but the database stores 1024. Check OLLAMA_EMBED_MODEL",
+    );
   });
 
   it("strips /rest/v1/ from SUPABASE_URL and asks for 5 notices, 1 excerpt each", async () => {
@@ -97,7 +104,7 @@ describe("lib/rag", () => {
     expect(rpc).toHaveBeenCalledWith("match_notice_chunks", {
       query_embedding: EMBEDDING,
       match_count: 5,
-      match_threshold: 0.3,
+      match_threshold: 0.45,
       max_per_notice: 1,
     });
   });
@@ -240,7 +247,7 @@ describe("lib/rag", () => {
     const { embedQuery } = await loadRag();
     const err = await embedQuery("x").catch((e) => e);
     expect(err.status).toBe(502);
-    expect(err.message).toContain("nomic-embed-text");
+    expect(err.message).toContain("bge-m3");
   });
 
   it("reports a vector search failure as a RagError", async () => {
