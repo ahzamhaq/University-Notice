@@ -166,11 +166,21 @@
   gap: 0.5rem;
 }
 
-.ref {
-  flex: 0 0 2.2rem;
-  font-size: 0.85rem;
+.position {
+  flex: 0 0 1.8rem;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cited {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
 }
 
 .more {

@@ -60,8 +60,10 @@ export interface Source {
   url: string;
   noticeDate: string | null;
   similarity: number;
-  /** Citation number used in the answer ([1]..[5]); null for extra notices the model didn't read. */
-  ref: number | null;
+  /** Relevance rank, 1 = best match. The answer cites notices by this number. */
+  ref: number;
+  /** True for the notices the model read (ref <= CONTEXT_COUNT), so the answer can cite them. */
+  cited: boolean;
 }
 
 export interface RagResult {
@@ -288,7 +290,8 @@ export function groupByNotice(chunks: NoticeChunk[]): NoticeGroup[] {
           title: chunk.title ?? "Untitled notice",
           url: chunk.url,
           noticeDate: chunk.notice_date,
-          ref: null,
+          ref: 0,
+          cited: false,
           similarity: chunk.similarity,
         },
         excerpts: [],
@@ -428,7 +431,7 @@ export async function* streamAnswer(question: string, signal?: AbortSignal): Asy
   const context = groups.slice(0, CONTEXT_COUNT);
   yield {
     type: "sources",
-    sources: groups.map((g, i) => ({ ...g.source, ref: i < CONTEXT_COUNT ? i + 1 : null })),
+    sources: groups.map((g, i) => ({ ...g.source, ref: i + 1, cited: i < CONTEXT_COUNT })),
   };
 
   const messages = buildMessages(question, context);

@@ -9,8 +9,10 @@ interface Source {
   url: string;
   noticeDate: string | null;
   similarity: number;
-  /** Citation number used in the answer, or null for extra matches the model didn't read. */
-  ref: number | null;
+  /** Relevance rank (1 = best); the answer cites notices by this number. */
+  ref: number;
+  /** True for the notices the answer was written from. */
+  cited: boolean;
 }
 
 type SortOrder = "newest" | "relevance";
@@ -59,7 +61,7 @@ export default function SearchNotices() {
   const busy = phase === "searching" || phase === "answering";
 
   // The answer cites the notices the model read ([1]..[5]); the rest appear with "show more".
-  const citedSources = sources?.filter((s) => s.ref !== null) ?? [];
+  const citedSources = sources?.filter((s) => s.cited) ?? [];
   const extraCount = (sources?.length ?? 0) - citedSources.length;
   const visibleSources = sortSources(showAll ? (sources ?? []) : citedSources, sortOrder);
 
@@ -207,17 +209,20 @@ export default function SearchNotices() {
                 </div>
               </div>
               <ul className={styles.sources}>
-                {visibleSources.map((source) => (
+                {visibleSources.map((source, i) => (
                   <li key={source.url}>
-                    <span className={styles.ref} title={source.ref ? "Cited in the answer" : undefined}>
-                      {source.ref ? `[${source.ref}]` : ""}
-                    </span>
+                    <span className={styles.position}>{i + 1}.</span>
                     <div>
                       <a href={source.url} target="_blank" rel="noopener noreferrer">
                         {source.title}
                       </a>
                       <span className={styles.meta}>
                         {formatDate(source.noticeDate) ?? "Undated"} · {Math.round(source.similarity * 100)}% match
+                        {source.cited && (
+                          <span className={styles.cited} title={`The answer refers to this notice as [${source.ref}]`}>
+                            cited [{source.ref}]
+                          </span>
+                        )}
                       </span>
                     </div>
                   </li>

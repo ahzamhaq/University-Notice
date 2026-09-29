@@ -116,7 +116,8 @@ describe("lib/rag", () => {
     rpc.mockResolvedValue({ data: many, error: null });
     const { answerQuestion } = await loadRag();
     const { sources } = await answerQuestion("q?");
-    expect(sources.map((s) => s.ref)).toEqual([1, 2, 3, 4, 5, null, null, null]);
+    expect(sources.map((s) => s.ref)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]); // every notice numbered
+    expect(sources.map((s) => s.cited)).toEqual([true, true, true, true, true, false, false, false]);
     const prompt = calls.find((c) => c.url.endsWith("/api/chat"))!.body.messages[1].content as string;
     expect(prompt).toContain("[5] TITLE: Title n5.pdf");
     expect(prompt).not.toContain("n6.pdf"); // extra matches are shown in the UI, not sent to the model

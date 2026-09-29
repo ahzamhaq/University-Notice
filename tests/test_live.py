@@ -316,8 +316,10 @@ def test_api_stream_sends_sources_fast_then_tokens(api):
     types = [e["type"] for e in events]
     assert types[0] == "sources" and types[-1] == "done" and "token" in types, types
     assert first_event_at < 20, f"sources took {first_event_at:.1f}s"
-    cited = [s for s in events[0]["sources"] if s["ref"] is not None]
-    assert [s["ref"] for s in cited] == list(range(1, len(cited) + 1)) and len(cited) <= 5
+    sources = events[0]["sources"]
+    assert [s["ref"] for s in sources] == list(range(1, len(sources) + 1))  # all numbered by relevance
+    cited = [s for s in sources if s["cited"]]
+    assert cited == sources[: len(cited)] and len(cited) <= 5
     assert all((s["noticeDate"] or "") >= recent_cutoff() for s in cited)  # recency boost on what the model reads
     assert len("".join(e["text"] for e in events if e["type"] == "token")) > 20
 
