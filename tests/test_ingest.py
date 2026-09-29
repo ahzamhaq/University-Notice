@@ -90,6 +90,15 @@ def test_chunks_respect_500_token_limit_with_overlap():
     assert chunks[0].split()[-1] in chunks[1]  # consecutive chunks overlap
 
 
+def test_crawl_state_round_trips_and_tolerates_bad_files(tmp_path):
+    path = tmp_path / "data" / "crawl_state.json"
+    assert ingest.load_crawl_state(path) == set()  # first run: nothing completed yet
+    ingest.save_crawl_state({"https://www.ipu.ac.in/b.php", "https://www.ipu.ac.in/a.php"}, path)
+    assert ingest.load_crawl_state(path) == {"https://www.ipu.ac.in/a.php", "https://www.ipu.ac.in/b.php"}
+    path.write_text("{not json", encoding="utf-8")
+    assert ingest.load_crawl_state(path) == set()  # corrupt file: fall back to full crawls
+
+
 def test_store_is_fresh_logic():
     store = NoticeStore(client=None)
     store.known = {

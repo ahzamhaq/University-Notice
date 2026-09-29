@@ -131,6 +131,20 @@ def test_pdf_link_text_takes_title_from_the_row():
     assert pdfs[1].title == "only-link"  # nothing but a serial number and a date: fall back to the filename
 
 
+def test_trailing_pdf_label_is_stripped_but_real_dates_are_kept():
+    html = b"""<table>
+      <tr><td><a href="/a.pdf">Academic Calender for the Academic Session 2026-27 PDF 01-07-26</a></td></tr>
+      <tr><td><a href="/b.pdf">Meeting Notice regarding Students Council Election on 30-09-2026</a></td></tr>
+      <tr><td><a href="/c.pdf">Guidelines for PDF submission</a></td></tr>
+    </table>"""
+    titles = [p.title for p in scraper.parse_listing(html, f"{BASE}/acadcalendar.php")[0]]
+    assert titles == [
+        "Academic Calender for the Academic Session 2026-27",
+        "Meeting Notice regarding Students Council Election on 30-09-2026",
+        "Guidelines for PDF submission",
+    ]
+
+
 def test_listing_finds_next_link_not_previous(parsed):
     assert parsed[1] == f"{BASE}/notices.php?page=2&limit=25"
 
@@ -278,9 +292,29 @@ def test_crawler_stops_when_a_page_is_entirely_known():
         f"{BASE}/n.php?page=2": listing(["/old1.pdf", "/old2.pdf"], "?page=3"),
         f"{BASE}/n.php?page=3": listing(["/older.pdf"]),
     }
-    crawler, got = crawl(pages, [f"{BASE}/n.php"], should_skip=lambda u: "old" in u)
+    crawler, got = crawl(
+        pages, [f"{BASE}/n.php"], should_skip=lambda u: "old" in u, completed_listings=[f"{BASE}/n.php"]
+    )
     assert got == ["new.pdf"]
     assert crawler.stats["pages"] == 2 and crawler.stats["skipped_known"] == 2
+
+
+def test_first_crawl_of_a_listing_does_not_stop_on_an_already_stored_page():
+    """exam_datesheet.php case: page 1 only has datesheets another listing already stored,
+    but pages 2+ have new ones. A listing's first crawl must walk its normal page budget."""
+    pages = {
+        f"{BASE}/exam_datesheet.php": listing(["/shared1.pdf", "/shared2.pdf"], "?page=2"),
+        f"{BASE}/exam_datesheet.php?page=2": listing(["/only-here.pdf"], "?page=3"),
+        f"{BASE}/exam_datesheet.php?page=3": listing(["/also-new.pdf"]),
+    }
+    crawler, got = crawl(pages, [f"{BASE}/exam_datesheet.php"], should_skip=lambda u: "shared" in u)
+    assert got == ["only-here.pdf", "also-new.pdf"]
+    assert f"{BASE}/exam_datesheet.php" in crawler.completed_listings  # next run may stop early
+
+
+def test_listing_that_failed_to_load_is_not_marked_completed():
+    crawler, _ = crawl({f"{BASE}/down.php": requests.ConnectionError("boom")}, [f"{BASE}/down.php"])
+    assert f"{BASE}/down.php" not in crawler.completed_listings
 
 
 def test_crawler_yields_each_pdf_once_across_pages():
@@ -316,7 +350,7 @@ def test_depth_zero_visits_only_seed_pages_and_their_pagination():
 def test_configured_seeds_are_exactly_the_requested_pages():
     urls = config.get_notice_urls()
     assert config.CRAWL_MAX_DEPTH == 0
-    assert len(urls) == 21  # notices.php + 20 active pages in urls.txt (6 research pages paused; dsw_sports.php in both)
+    assert len(urls) == 35  # notices.php + 34 active pages in urls.txt (research paused; dsw_sports.php in both)
     assert all(u.startswith("https://www.ipu.ac.in/") for u in urls)
 
 

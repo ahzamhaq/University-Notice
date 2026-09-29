@@ -35,6 +35,7 @@ log = logging.getLogger("scraper")
 
 # dd-mm-yyyy, also dd-mm-yy (some research pages use 2-digit years, e.g. 02-04-26).
 DATE_RE = re.compile(r"\b(\d{1,2})[-./](\d{1,2})[-./](\d{4}|\d{2})\b")
+TRAILING_PDF_LABEL = re.compile(r"\s+PDF(\s+\d{1,2}[-./]\d{1,2}[-./]\d{2,4})?\s*$", re.IGNORECASE)
 # Link texts that say nothing about the notice; the real title is then in another cell.
 GENERIC_LINK_TEXT = re.compile(
     r"^(pdf|download|click here|here|view|view pdf|open|link|read more|details|file)$", re.IGNORECASE
@@ -216,7 +217,9 @@ def parse_listing(html: bytes, page_url: str) -> tuple[list[PdfLink], str | None
             row = anchor.find_parent("tr")
             date = parse_date(row.get_text(" ", strip=True)) if row else None
             title = text if text and not GENERIC_LINK_TEXT.match(text) else row_title(row, anchor)
-            title = title or Path(urlparse(url).path).stem
+            # acadcalendar.php puts "<title> PDF 01-07-26" in one link. Only a trailing "PDF" (+ date)
+            # is noise; dates that are part of a title ("Election on 30-09-2026") are kept.
+            title = TRAILING_PDF_LABEL.sub("", title or "").strip() or Path(urlparse(url).path).stem
             pdfs.append(PdfLink(url=url, title=title, notice_date=date, source_page=page_url))
         elif next_url is None and NEXT_RE.search(text):
             next_url = url
@@ -236,11 +239,17 @@ class NoticeCrawler:
         max_pages: int = config.MAX_PAGES_PER_LISTING,
         max_depth: int = config.CRAWL_MAX_DEPTH,
         stop_when_known: bool = config.STOP_WHEN_PAGE_ALREADY_KNOWN,
+        completed_listings: Iterable[str] = (),
     ) -> None:
         self.session = session
         self.max_pages = max_pages
         self.max_depth = max_depth
         self.stop_when_known = stop_when_known
+        # Listings that have had one full crawl (up to max_pages). Only these may stop early on
+        # an already-stored page: on a first crawl, page 1 can consist entirely of notices other
+        # listings already stored (exam_datesheet.php vs notices.php), which says nothing about
+        # the pages after it. The caller persists this set between runs.
+        self.completed_listings: set[str] = {normalize_url(u) for u in completed_listings}
         self.stats: Counter[str] = Counter()
 
     def crawl(
@@ -254,6 +263,9 @@ class NoticeCrawler:
 
         while queue:
             page_url, depth = queue.popleft()
+            listing = page_url
+            may_stop_early = listing in self.completed_listings
+            fetch_failed = False
             pages = 0
             while page_url and pages < self.max_pages and page_url not in visited:
                 visited.add(page_url)
@@ -264,6 +276,7 @@ class NoticeCrawler:
                 except (requests.RequestException, ScrapeError) as exc:
                     log.error("Failed to fetch listing %s: %s", page_url, exc)
                     self.stats["pages_failed"] += 1
+                    fetch_failed = True
                     break
                 self.stats["pages"] += 1
 
@@ -285,9 +298,15 @@ class NoticeCrawler:
                     queue.extend((sub, depth + 1) for sub in subpages if sub not in visited)
 
                 if self.stop_when_known and pdfs and new_on_page == 0:
-                    log.info("Every PDF on %s is already stored; stopping pagination here", page_url)
-                    break
+                    if may_stop_early:
+                        log.info("Every PDF on %s is already stored; stopping pagination here", page_url)
+                        break
+                    log.info("Every PDF on %s is already stored, but this is the listing's first full crawl; continuing", page_url)
                 page_url = next_url
+
+            if not fetch_failed and listing not in self.completed_listings:
+                self.completed_listings.add(listing)
+                self.stats["listings_completed"] += 1
 
 
 def download_pdf(session: PoliteSession, url: str) -> bytes:

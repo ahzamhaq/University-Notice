@@ -34,6 +34,7 @@ components/SearchNotices.tsx ──> app/api/query/route.ts ──> lib/rag.ts �
 ## Ingestion rules (keep these invariants)
 
 - **Politeness:** wait `REQUEST_DELAY` (2s) between every HTTP request to ipu.ac.in and honour `robots.txt`.
+- **Early stop only after a first full crawl:** a listing may stop paginating at an all-stored page only if it is in `data/crawl_state.json` (`NoticeCrawler.completed_listings`). Otherwise `exam_datesheet.php` stopped at page 1, because that page only repeated `notices.php`. Runs with `--max-pages` below the default don't save state.
 - **Dedup:** check whether a PDF URL is already in `notices` *before* downloading it. Skip it unless its `updated_at` is older than `REFRESH_DAYS` (7), in which case re-download and re-embed it (the weekly recompute).
 - **Size cap:** skip PDFs over `PDF_SIZE_LIMIT` (100MB). Check `Content-Length` first, then enforce the limit while streaming.
 - **Failures never crash the run.** A PDF that fails to download or parse is logged and recorded with `status='failed'` and an `error` message.

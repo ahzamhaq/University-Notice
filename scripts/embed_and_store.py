@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import logging
 import os
 import re
@@ -58,6 +59,25 @@ def parse_ts(value: str) -> datetime:
     value = value.replace("Z", "+00:00")
     value = re.sub(r"\.(\d+)", lambda m: "." + m.group(1).ljust(6, "0")[:6], value)
     return datetime.fromisoformat(value)
+
+
+CRAWL_STATE_FILE = config.DATA_DIR / "crawl_state.json"
+
+
+def load_crawl_state(path: Path = CRAWL_STATE_FILE) -> set[str]:
+    """Listing URLs that have completed a first full crawl (see NoticeCrawler.completed_listings)."""
+    try:
+        return set(json.loads(path.read_text(encoding="utf-8")).get("completed_listings", []))
+    except FileNotFoundError:
+        return set()
+    except (OSError, ValueError) as exc:
+        log.warning("Ignoring unreadable crawl state %s (%s); listings will be fully crawled", path, exc)
+        return set()
+
+
+def save_crawl_state(completed: set[str], path: Path = CRAWL_STATE_FILE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"completed_listings": sorted(completed)}, indent=2), encoding="utf-8")
 
 
 def normalize_supabase_url(url: str) -> str:
@@ -360,10 +380,11 @@ def main() -> None:
     embedder.check()
 
     session = PoliteSession()
+    completed = load_crawl_state()
     if args.all_pages:
         crawler = NoticeCrawler(session, max_pages=100_000, max_depth=args.depth, stop_when_known=False)
     else:
-        crawler = NoticeCrawler(session, max_pages=args.max_pages, max_depth=args.depth)
+        crawler = NoticeCrawler(session, max_pages=args.max_pages, max_depth=args.depth, completed_listings=completed)
     ingestor = Ingestor(store, embedder, session)
     seeds = args.url or config.get_notice_urls()
     log.info("Crawling %d seed page(s): %s", len(seeds), ", ".join(seeds))
@@ -371,11 +392,17 @@ def main() -> None:
     def budget_left() -> bool:
         return not args.max_pdfs or len(ingestor.attempted) < args.max_pdfs
 
-    for link in crawler.crawl(seeds, should_skip=store.is_fresh):
-        if not budget_left():
-            log.info("Reached --max-pdfs %d", args.max_pdfs)
-            break
-        ingestor.ingest(link)
+    try:
+        for link in crawler.crawl(seeds, should_skip=store.is_fresh):
+            if not budget_left():
+                log.info("Reached --max-pdfs %d", args.max_pdfs)
+                break
+            ingestor.ingest(link)
+    finally:
+        # Only a crawl at least as deep as the default counts as a listing's "first full crawl";
+        # a quick --max-pages 1 test must not let later runs stop early.
+        if args.all_pages or args.max_pages >= config.MAX_PAGES_PER_LISTING:
+            save_crawl_state(crawler.completed_listings)
 
     if not args.no_refresh and budget_left():
         stale = [link for link in store.stale_links() if link.url not in ingestor.attempted]

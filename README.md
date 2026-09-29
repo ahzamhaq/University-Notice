@@ -11,10 +11,10 @@ It runs **fully offline** on your own machine with Ollama, or **deployed for fre
 
 | | |
 | --- | --- |
-| Notices indexed | **1,458** from **25** IPU pages |
-| Searchable chunks | **7,858** (`bge-m3`, 1,024-dim vectors) |
+| Notices indexed | **1,947** from **40** IPU pages: notices, exams, admissions 2026-27, academics, student welfare, sports, hostels, placement and more |
+| Searchable chunks | **12,313** (`bge-m3`, 1,024-dim vectors) |
 | Answer time (deployed) | sources in about **4s**, full answer in about **6s** |
-| Automated tests | **161**: 68 Python unit, 45 TypeScript, 48 live |
+| Automated tests | **165**: 72 Python unit, 45 TypeScript, 48 live |
 
 ## Features
 
@@ -128,8 +128,8 @@ Vercel can't run Ollama, so the deployed site uses Cloudflare Workers AI for the
 
 **Scraping** (`scripts/scraper.py`)
 - Reads the notice table on each page listed in `NOTICE_URLS` / [`urls.txt`](urls.txt). Titles and dates come from the table row.
-- When a link just says "PDF", the title is taken from the row's other cells. Both `dd-mm-yyyy` and `dd-mm-yy` dates are parsed.
-- Follows `Next »` pagination, up to 5 pages per listing by default. It stops early when a whole page is already stored; `--all-pages` walks the full history. Only the listed pages are crawled (`CRAWL_MAX_DEPTH = 0`).
+- When a link just says "PDF", the title is taken from the row's other cells. A trailing "PDF 01-07-26" label is stripped, while dates that belong to a title are kept. Both `dd-mm-yyyy` and `dd-mm-yy` dates are parsed.
+- Follows `Next »` pagination, up to 5 pages per listing by default. On later runs it stops early once a whole page is already stored. A listing's **first** crawl always walks its full page budget, because its first page may only repeat notices other listings already stored (tracked in `data/crawl_state.json`). `--all-pages` walks the full history. Only the listed pages are crawled (`CRAWL_MAX_DEPTH = 0`).
 - **Polite:** it honours `robots.txt` (including any `Crawl-delay`) and waits 2 seconds between requests, timed with a high-resolution clock.
 - **Deduplicated:** stored URLs are skipped *before* downloading. PDFs over 100MB are rejected, both from their declared size and while streaming.
 - **Scanned PDFs** (no text layer) are stored as `title_only`. Download or parse errors are stored as `failed` and never stop the run.
@@ -153,7 +153,7 @@ Vercel can't run Ollama, so the deployed site uses Cloudflare Workers AI for the
 
 ```bash
 pip install -r requirements-dev.txt
-venv/Scripts/python -m pytest -m "not live"                     # 68 offline Python tests (scraper, ingestion)
+venv/Scripts/python -m pytest -m "not live"                     # 72 offline Python tests (scraper, ingestion)
 npm test                                                        # 45 offline TypeScript tests (API, RAG, rate limit)
 API_URL=http://localhost:3000 venv/Scripts/python -m pytest -m live
 ```
@@ -181,6 +181,7 @@ Other options: `--max-pages N`, `--all-pages`, `--depth N`, `--max-pdfs N` and `
 
 - **Scanned PDFs:** about half of the notices have no text layer, so only their title and date are searchable. Adding OCR is the next improvement.
 - **Research pages** (`rnc_*`) are paused in `urls.txt`. Their existing notices stay in the database, but 52 of them are still titled "PDF" until those pages are crawled again.
+- **Syllabus** (`syll.php`, about 1,000 PDFs and about 129k chunks) is not indexed: it would exceed Supabase's free 500 MB database. It would need a narrower approach, such as indexing current programmes only.
 - **Free tiers:** Cloudflare allows about 600 questions a day. Supabase pauses a free project after about a week without activity (click **Restore**).
 
 ## Troubleshooting

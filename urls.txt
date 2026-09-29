@@ -29,6 +29,26 @@ https://www.ipu.ac.in/proctor.php
 # https://www.ipu.ac.in/rnc_notices.php
 # https://www.ipu.ac.in/rnc_archieve.PHP
 
+# Academics
+https://www.ipu.ac.in/acadcalendar.php
+https://www.ipu.ac.in/all_programmes.php
+https://www.ipu.ac.in/so_statutes.php
+https://www.ipu.ac.in/intaff.php
+https://www.ipu.ac.in/nepmain.php
+https://www.ipu.ac.in/acadaffabout.php
+https://www.ipu.ac.in/acadcollaborations.php
+https://www.ipu.ac.in/ddnaacmain.php
+# Not crawled: syll.php (~1,000 syllabus PDFs, ~129k chunks, too big for the free database)
+# and schools.php (links to 40 separate school websites).
+
+# Admission 2026-27
+https://www.ipu.ac.in/adm2026/adm2026notices.php
+https://www.ipu.ac.in/adm2026/adm2026seat.php
+https://www.ipu.ac.in/adm2026/adm2026management.php
+https://www.ipu.ac.in/adm2026/adm2026main.php
+https://www.ipu.ac.in/adm2026/adm2026brochures.php
+https://www.ipu.ac.in/adm2026/adm2026distance.php
+
 # Examinations, NAD, convocation
 https://www.ipu.ac.in/exam_notices.php
 https://www.ipu.ac.in/exam_datesheet.php
