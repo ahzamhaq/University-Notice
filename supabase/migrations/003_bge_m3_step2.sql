@@ -22,7 +22,7 @@ create or replace function match_notice_chunks (
   match_count            int   default 5,
   match_threshold        float default 0.45,
   max_per_notice         int   default 1,
-  recency_weight         float default 0.05,
+  recency_weight         float default 0.065,
   recency_half_life_days float default 180
 )
 returns table (

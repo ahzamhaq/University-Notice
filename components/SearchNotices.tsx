@@ -9,6 +9,16 @@ interface Source {
   url: string;
   noticeDate: string | null;
   similarity: number;
+  /** Citation number used in the answer, or null for extra matches the model didn't read. */
+  ref: number | null;
+}
+
+type SortOrder = "newest" | "relevance";
+
+/** The API sends sources in relevance order; "newest" re-sorts by date (undated last). */
+function sortSources(sources: Source[], order: SortOrder): Source[] {
+  if (order === "relevance") return sources;
+  return [...sources].sort((a, b) => (b.noticeDate ?? "").localeCompare(a.noticeDate ?? ""));
 }
 
 type StreamEvent =
@@ -39,12 +49,19 @@ export default function SearchNotices() {
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[] | null>(null);
   const [answer, setAnswer] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [showAll, setShowAll] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Cancel generation if the component unmounts (e.g. the tab is closed).
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const busy = phase === "searching" || phase === "answering";
+
+  // The answer cites the notices the model read ([1]..[5]); the rest appear with "show more".
+  const citedSources = sources?.filter((s) => s.ref !== null) ?? [];
+  const extraCount = (sources?.length ?? 0) - citedSources.length;
+  const visibleSources = sortSources(showAll ? (sources ?? []) : citedSources, sortOrder);
 
   async function ask(q: string) {
     const trimmed = q.trim();
@@ -59,6 +76,7 @@ export default function SearchNotices() {
     setError(null);
     setSources(null);
     setAnswer("");
+    setShowAll(false);
 
     try {
       const res = await fetch("/api/query", {
@@ -173,19 +191,45 @@ export default function SearchNotices() {
 
           {sources.length > 0 && (
             <>
-              <h2 className={styles.heading}>Matching notices</h2>
-              <ol className={styles.sources}>
-                {sources.map((source) => (
+              <div className={styles.sourcesHeader}>
+                <h2 className={styles.heading}>Matching notices</h2>
+                <div className={styles.sortToggle} role="group" aria-label="Sort notices">
+                  <button type="button" aria-pressed={sortOrder === "newest"} onClick={() => setSortOrder("newest")}>
+                    Newest first
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={sortOrder === "relevance"}
+                    onClick={() => setSortOrder("relevance")}
+                  >
+                    Best match
+                  </button>
+                </div>
+              </div>
+              <ul className={styles.sources}>
+                {visibleSources.map((source) => (
                   <li key={source.url}>
-                    <a href={source.url} target="_blank" rel="noopener noreferrer">
-                      {source.title}
-                    </a>
-                    <span className={styles.meta}>
-                      {formatDate(source.noticeDate) ?? "Undated"} · {Math.round(source.similarity * 100)}% match
+                    <span className={styles.ref} title={source.ref ? "Cited in the answer" : undefined}>
+                      {source.ref ? `[${source.ref}]` : ""}
                     </span>
+                    <div>
+                      <a href={source.url} target="_blank" rel="noopener noreferrer">
+                        {source.title}
+                      </a>
+                      <span className={styles.meta}>
+                        {formatDate(source.noticeDate) ?? "Undated"} · {Math.round(source.similarity * 100)}% match
+                      </span>
+                    </div>
                   </li>
                 ))}
-              </ol>
+              </ul>
+              {extraCount > 0 && (
+                <button type="button" className={styles.more} onClick={() => setShowAll((v) => !v)}>
+                  {showAll
+                    ? "Show fewer"
+                    : `Show ${extraCount} more matching notice${extraCount === 1 ? "" : "s"}`}
+                </button>
+              )}
             </>
           )}
         </article>

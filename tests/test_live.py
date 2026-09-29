@@ -70,6 +70,7 @@ def search(db, question, count=5):
         "match_count": count,
         "match_threshold": 0.45,
         "max_per_notice": 1,
+        "recency_weight": 0.065,
     }
     # MATCH_FUNCTION=match_notice_chunks_m3 tests the new bge-m3 column before migration step 2.
     return db.rpc(os.getenv("MATCH_FUNCTION", "match_notice_chunks"), params).execute().data
@@ -195,6 +196,12 @@ def test_recency_boost_prefers_new_notices_over_near_identical_old_ones(db):
     assert not any("May/June 2025" in r["title"] for r in rows)
 
 
+def test_current_office_bearer_elections_outrank_2017_ones(db):
+    """Reported case: 2017 election notices outranked this year's with the old 0.05 boost."""
+    years = [int(r["notice_date"][:4]) for r in search(db, "when is the office bearer elections") if r["notice_date"]]
+    assert sum(y >= 2026 for y in years) >= 3, years
+
+
 def test_clearly_better_old_match_still_wins(db):
     """The only Yogasana championship notice is from Oct 2025; newer sports notices mustn't bury it."""
     top = search(db, "Inter-collegiate yogasana championship")[0]
@@ -309,7 +316,9 @@ def test_api_stream_sends_sources_fast_then_tokens(api):
     types = [e["type"] for e in events]
     assert types[0] == "sources" and types[-1] == "done" and "token" in types, types
     assert first_event_at < 20, f"sources took {first_event_at:.1f}s"
-    assert all((s["noticeDate"] or "") >= recent_cutoff() for s in events[0]["sources"])  # recency boost
+    cited = [s for s in events[0]["sources"] if s["ref"] is not None]
+    assert [s["ref"] for s in cited] == list(range(1, len(cited) + 1)) and len(cited) <= 5
+    assert all((s["noticeDate"] or "") >= recent_cutoff() for s in cited)  # recency boost on what the model reads
     assert len("".join(e["text"] for e in events if e["type"] == "token")) > 20
 
 

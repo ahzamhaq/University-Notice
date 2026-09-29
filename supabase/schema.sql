@@ -42,7 +42,7 @@ drop index if exists notice_chunks_embedding_idx;
 -- * At most max_per_notice chunks come from any one notice, so one huge PDF can't fill every slot.
 -- * score = similarity + a recency boost that halves every recency_half_life_days, so a new
 --   notice beats an old one with nearly the same match, while a clearly better old match still wins.
---   (0.05 / 180 days was tuned on real queries; the threshold still applies to raw similarity.)
+--   (0.065 / 180 days was tuned on real bge-m3 queries; the threshold still applies to raw similarity.)
 drop function if exists match_notice_chunks (vector, int, float);
 drop function if exists match_notice_chunks (vector, int, float, int);
 create or replace function match_notice_chunks (
@@ -50,7 +50,7 @@ create or replace function match_notice_chunks (
   match_count            int   default 5,
   match_threshold        float default 0.45,
   max_per_notice         int   default 1,
-  recency_weight         float default 0.05,
+  recency_weight         float default 0.065,
   recency_half_life_days float default 180
 )
 returns table (

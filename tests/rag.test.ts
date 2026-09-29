@@ -95,7 +95,7 @@ describe("lib/rag", () => {
     );
   });
 
-  it("strips /rest/v1/ from SUPABASE_URL and asks for 5 notices, 1 excerpt each", async () => {
+  it("strips /rest/v1/ from SUPABASE_URL and asks for 20 notices, 1 excerpt each, tuned recency", async () => {
     mockOllama();
     rpc.mockResolvedValue({ data: [], error: null });
     const { retrieveChunks } = await loadRag();
@@ -103,10 +103,23 @@ describe("lib/rag", () => {
     expect(createClient).toHaveBeenCalledWith("https://abc.supabase.co", "service-key", expect.anything());
     expect(rpc).toHaveBeenCalledWith("match_notice_chunks", {
       query_embedding: EMBEDDING,
-      match_count: 5,
+      match_count: 20,
       match_threshold: 0.45,
       max_per_notice: 1,
+      recency_weight: 0.065,
     });
+  });
+
+  it("gives the model only the best 5 notices but returns all matches with citation numbers", async () => {
+    const calls = mockOllama();
+    const many = Array.from({ length: 8 }, (_, i) => chunk(`n${i + 1}.pdf`, "2026-09-01", 0.9 - i * 0.01));
+    rpc.mockResolvedValue({ data: many, error: null });
+    const { answerQuestion } = await loadRag();
+    const { sources } = await answerQuestion("q?");
+    expect(sources.map((s) => s.ref)).toEqual([1, 2, 3, 4, 5, null, null, null]);
+    const prompt = calls.find((c) => c.url.endsWith("/api/chat"))!.body.messages[1].content as string;
+    expect(prompt).toContain("[5] TITLE: Title n5.pdf");
+    expect(prompt).not.toContain("n6.pdf"); // extra matches are shown in the UI, not sent to the model
   });
 
   it("answers 'not found' without calling the LLM when nothing matches", async () => {

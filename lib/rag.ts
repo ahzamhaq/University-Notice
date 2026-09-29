@@ -21,9 +21,14 @@ const CF_EMBED_MODEL = "@cf/baai/bge-m3";
 const EMBED_DIM = 1024; // vector(1024) in supabase/schema.sql; config.EMBED_DIM on the Python side
 const CF_CHAT_MODEL = process.env.CLOUDFLARE_CHAT_MODEL ?? "@cf/meta/llama-3.1-8b-instruct-fp8-fast";
 
-const MATCH_COUNT = 5; // notices shown as sources and given to the model
+const SOURCE_COUNT = 20; // matching notices returned to the UI ("show more")
+const CONTEXT_COUNT = 5; // best of those given to the model; keeps answers fast and cheap
 // bge-m3 scores relevant notices ~0.5-0.7 and unrelated text ~0.3-0.41, so 0.45 filters junk.
 const MATCH_THRESHOLD = 0.45;
+// score = similarity + RECENCY_WEIGHT * 0.5^(age_days / 180). Tuned for bge-m3: 0.065 puts this
+// year's notices above near-identical old ones; 0.07+ let new but less relevant notices (e.g.
+// NSS for an "NSP scholarship" question) push the right answer down.
+const RECENCY_WEIGHT = 0.065;
 const MAX_CHUNKS_PER_NOTICE = 1;
 const MAX_EXCERPT_CHARS = 1000; // ~250 tokens per notice keeps the prompt near 1.5k tokens
 const EMBED_TIMEOUT_MS = 60_000;
@@ -55,6 +60,8 @@ export interface Source {
   url: string;
   noticeDate: string | null;
   similarity: number;
+  /** Citation number used in the answer ([1]..[5]); null for extra notices the model didn't read. */
+  ref: number | null;
 }
 
 export interface RagResult {
@@ -248,9 +255,10 @@ export async function retrieveChunks(question: string, signal?: AbortSignal): Pr
   const embedding = await embedQuery(question, signal);
   const { data, error } = await getSupabase().rpc("match_notice_chunks", {
     query_embedding: embedding,
-    match_count: MATCH_COUNT,
+    match_count: SOURCE_COUNT,
     match_threshold: MATCH_THRESHOLD,
     max_per_notice: MAX_CHUNKS_PER_NOTICE,
+    recency_weight: RECENCY_WEIGHT,
   });
   if (error) {
     throw new RagError("Vector search failed. Has supabase/schema.sql been applied?", 502, { cause: error });
@@ -280,6 +288,7 @@ export function groupByNotice(chunks: NoticeChunk[]): NoticeGroup[] {
           title: chunk.title ?? "Untitled notice",
           url: chunk.url,
           noticeDate: chunk.notice_date,
+          ref: null,
           similarity: chunk.similarity,
         },
         excerpts: [],
@@ -414,9 +423,15 @@ export async function* streamAnswer(question: string, signal?: AbortSignal): Asy
   }
 
   const groups = groupByNotice(chunks);
-  yield { type: "sources", sources: groups.map((g) => g.source) };
+  // The model reads the best CONTEXT_COUNT notices (cited as [1]..[n]); the rest are extra
+  // matches the UI can reveal with "show more".
+  const context = groups.slice(0, CONTEXT_COUNT);
+  yield {
+    type: "sources",
+    sources: groups.map((g, i) => ({ ...g.source, ref: i < CONTEXT_COUNT ? i + 1 : null })),
+  };
 
-  const messages = buildMessages(question, groups);
+  const messages = buildMessages(question, context);
   const chat =
     LLM_PROVIDER === "cloudflare" ? streamCloudflareChat(messages, signal) : streamOllamaChat(messages, signal);
   for await (const text of chat) yield { type: "token", text };
